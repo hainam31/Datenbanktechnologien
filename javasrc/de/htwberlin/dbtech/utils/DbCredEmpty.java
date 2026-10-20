@@ -6,4 +6,5 @@ public interface DbCredEmpty {
     String user = "uuu";
     String password = "ppp";
     String schema = "uuu";
+    //halloooooooojxixjosjxojwoxwjpoxjwpjwpsxjpwsjxpswkxp
 }
