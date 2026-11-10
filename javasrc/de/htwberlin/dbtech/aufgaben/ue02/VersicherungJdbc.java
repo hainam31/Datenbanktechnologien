@@ -4,8 +4,7 @@ package de.htwberlin.dbtech.aufgaben.ue02;
   @author Ingo Classen
  */
 
-import de.htwberlin.dbtech.exceptions.DataException;
-import de.htwberlin.dbtech.exceptions.KundeExistiertNichtException;
+import de.htwberlin.dbtech.exceptions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,7 +38,7 @@ public class VersicherungJdbc implements IVersicherungJdbc {
     public List<String> kurzBezProdukte() {
         L.info("start");
         List<String> produkte = new ArrayList<>();
-        String sql = "SELECT KurzBez FROM produkt";
+        String sql = "SELECT KurzBez FROM produkt ORDER BY ID";
 
         try (PreparedStatement pstmt = useConnection().prepareStatement(sql);
              ResultSet rs = pstmt.executeQuery()) {
@@ -59,6 +58,7 @@ public class VersicherungJdbc implements IVersicherungJdbc {
     @Override
     public Kunde findKundeById(Integer id) {
         L.info("id: " + id);
+
         String sql = "SELECT ID, Name, Geburtsdatum FROM kunde WHERE ID = ?";
 
         try (PreparedStatement pstmt = useConnection().prepareStatement(sql)) {
@@ -83,16 +83,79 @@ public class VersicherungJdbc implements IVersicherungJdbc {
     }
 
     @Override
-    public void createVertrag(Integer id, Integer produktId, Integer kundenId, LocalDate versicherungsbeginn) {
+    public void createVertrag(Integer id, Integer produktId,
+                              Integer kundenId, LocalDate versicherungsbeginn) {
+
         L.info("id: " + id);
         L.info("produktId: " + produktId);
         L.info("kundenId: " + kundenId);
         L.info("versicherungsbeginn: " + versicherungsbeginn);
 
-        LocalDate versicherungsende = versicherungsbeginn.plusYears(1).minusDays(1);
+        if (versicherungsbeginn.isBefore(LocalDate.now())) {
+            throw new DatumInVergangenheitException(versicherungsbeginn);
+        }
+
+        LocalDate versicherungsende =
+                versicherungsbeginn.plusYears(1).minusDays(1);
+
+        // Vertrag existiert bereits Exception
+        String vertragSql = "SELECT COUNT(*) FROM vertrag WHERE ID = ?";
+
+        try (PreparedStatement pstmt =
+                     useConnection().prepareStatement(vertragSql)) {
+
+            pstmt.setInt(1, id);
+
+            try (ResultSet rs = pstmt.executeQuery()) {
+                rs.next();
+
+                if(rs.getInt(1) > 0) {
+                    throw new VertragExistiertBereitsException(id);
+                }
+            }
+        } catch (SQLException e) {
+            throw new DataException(e);
+        }
+
+        // Produkt existiert nicht Exception
+        String produktSql = "SELECT COUNT(*) FROM produkt WHERE ID = ?";
+
+        try(PreparedStatement pstmt =
+                useConnection().prepareStatement(produktSql)){
+            pstmt.setInt(1, produktId);
+
+            try(ResultSet rs = pstmt.executeQuery()){
+                rs.next();
+
+                if(rs.getInt(1) == 0){
+                    throw new ProduktExistiertNichtException(produktId);
+                }
+            }
+        }catch (SQLException e){
+            throw new DataException(e);
+        }
+
+        // Kunde existiert nicht Exception
+        String kundenSql = "SELECT COUNT(*) FROM kunde WHERE ID = ?";
+
+        try(PreparedStatement pstmt =
+                useConnection().prepareStatement(kundenSql)){
+            pstmt.setInt(1, kundenId);
+            try(ResultSet rs = pstmt.executeQuery()){
+                rs.next();
+                if(rs.getInt(1) == 0){
+                    throw new KundeExistiertNichtException(kundenId);
+                }
+            }
+        }catch(SQLException e){
+            throw new DataException(e);
+        }
+
         String sql = "INSERT INTO vertrag (ID, Produkt_FK, Kunde_FK, Versicherungsbeginn, Versicherungsende) VALUES (?, ?, ?, ?, ?)";
 
-        try (PreparedStatement pstmt = useConnection().prepareStatement(sql)) {
+        try (PreparedStatement pstmt =
+                     useConnection().prepareStatement(sql)) {
+
             pstmt.setInt(1, id);
             pstmt.setInt(2, produktId);
             pstmt.setInt(3, kundenId);
@@ -117,7 +180,8 @@ public class VersicherungJdbc implements IVersicherungJdbc {
         String sql = "SELECT SUM(p.Preis) AS summe " +
                 "FROM Vertrag v " +
                 "JOIN Deckung d ON v.ID = d.Vertrag_FK " +
-                "JOIN Deckungsbetrag db ON d.Deckungsart_FK = db.Deckungsart_FK AND d.Deckungsbetrag = db.ID " +
+                "JOIN Deckungsbetrag db ON d.Deckungsart_FK = db.Deckungsart_FK " +
+                "AND d.Deckungsbetrag = db.Deckungsbetrag " +
                 "JOIN Deckungspreis p ON db.ID = p.Deckungsbetrag_FK " +
                 "WHERE v.ID = ? " +
                 "AND v.Versicherungsbeginn BETWEEN p.Gueltig_Von AND p.Gueltig_Bis";
